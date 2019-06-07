@@ -16,16 +16,21 @@
 #                                   #
 #####################################
 
-##usage
-# app edit song.mp3 - opens vim and show's song tags in JSON
-# app upload song.mp3 - uploads song to player
-# app sync - sync folder with end device
+##USAGE
+# app config [test,prod]
+# app upload [song ...] - uploads list of songs to server
+# app sync - sync folder with end server
+
+
+##todo-USAGE
 # app convert ./ --mp3 --high  - converts in ./ everything in mp3
+# app edit song.mp3 - opens vim and show's song tags in JSON
+
 
 ##convert stuff##
 # within folder find all mysic files and convert them as mp3
 # then old old shit
-#
+
 
 
 ##1show diff folder<->player
@@ -60,75 +65,50 @@ import configparser
 import argparse
 import os
 import sys
-
 import webdav3.client as wc
 
-# todo do parallelism for fast convertion
+# todo do parallelism for fast converting
 # todo map of music content?
-# todo config file ~/.syncer
 # todo idv3 tags
-
-home_dir = str(Path.home())
-config_path = Path(home_dir + '/.config/msyncer')
-
 
 class Syncer(object):
 	def __init__(self, config):
-		arg_parser = argparse.ArgumentParser(
-			description="It sync's files between two nodes and bunch of other stuff"
-		)
-		self.config = config
-		self.ip_address = config['phone']['ip_address']
-		self.port = config['phone']['port']
-		self.root_dir = config['phone']['root_dir']
+		self.ip_address = config['config']['phone']['ip_address']
+		self.port = config['config']['phone']['port']
+		self.root_dir = config['config']['phone']['root_dir']
+		self.path = config['path']
 
-		arg_parser.add_argument('command', help="currently available: UPLOAD, SYNC")
-		args = arg_parser.parse_args(sys.argv[1:2])
-
-		if not hasattr(self, args.command):
-			print('Unrecognized command')
-			arg_parser.print_usage()
-			exit(1)
-		# use dispatch pattern to invoke method with same name
-		getattr(self, args.command)()
-
-
-	def makeconfig(self):
-		config_default = configparser.ConfigParser()
-
+		# make parser
 		parser = argparse.ArgumentParser()
-		parser.add_argument("-t","--test", action="store_true", help="set testing config")
-		parser.add_argument("-p","--production", action="store_true", help="set prod config")
-		args = parser.parse_args(sys.argv[2:])
+		sub_parser = parser.add_subparsers(dest='choose')
 
-		if args.test:
-			config_default['phone'] = {'ip_address': '127.0.0.1', 'port': '8080', 'root_dir': '/sync'}
-		elif args.production:
-			config_default['phone'] = {'ip_address': '10.0.0.6', 'port': '8080', 'root_dir': '/sync'}
+		config_parser = sub_parser.add_parser('config')
+		upload_parser = sub_parser.add_parser('upload')
+		sync_parser = sub_parser.add_parser('sync')
+		convert_parser = sub_parser.add_parser('convert')
 
-		with open(config_path, 'w+') as configFile:
-			config_default.write(configFile)
-		exit(0)
+		config_parser.add_argument('config', nargs='?', choices=['test', 'prod'], default='test')
+		upload_parser.add_argument('data_upload', type=str, nargs='+')
+		sync_parser.add_argument('data_sync', type=str, nargs=1)
+		convert_parser.add_argument('data_convert', type=str, nargs='+')
 
-	def upload(self):
+		if len(sys.argv) == 1:
+			parser.print_usage()
+			exit(0)
+		args = parser.parse_args()
+
+		if args.choose == 'config':
+			make_config(self.path, args.config)
+		if args.choose == 'upload':
+			self.upload(args.data_upload)
+		if args.choose == 'sync':
+			self.sync(args.data_sync)
+		if args.choose == 'convert':
+			self.convert(args.data_convert)
+
+	def upload(self, data_upload):
 		#upload file like app upload file santana.mp3 -> creates {ROOT_DIR}/santana.mp3
 		#upload folder like app upload dir this    -> creates {ROOT_DIR}/this
-
-		parser = argparse.ArgumentParser(
-			description="Upload file to server"
-		)
-		parser.add_argument("-f","--file", nargs="+", type=str, help="Files to upload")
-		parser.add_argument("-v","--verbose", action="store_true",help="Show files to upload and quit")
-		args = parser.parse_args(sys.argv[2:])
-		if args.verbose:
-			print("------------------------------------")
-			print(self.config.sections())
-			print(self.ip_address)
-			print(self.port)
-			print(self.root_dir)
-			print(args)
-			print("------------------------------------")
-			exit(0)
 
 		options = {'webdav_hostname': "http://" + self.ip_address + ":" + self.port}
 		client = wc.Client(options)
@@ -136,8 +116,8 @@ class Syncer(object):
 		if not client.check(self.root_dir):
 			client.mkdir(self.root_dir)
 
-		if args.file:
-			for each in args.file:
+		if data_upload:
+			for each in data_upload:
 				ap = os.path.abspath(each)
 				print("uploading " + ap)
 				if os.path.isdir(ap):
@@ -148,21 +128,11 @@ class Syncer(object):
 				else:
 					client.upload(self.root_dir + "/" + each, ap)
 
-	def sync(self):
-
-		parser = argparse.ArgumentParser(
-			description="Sync local dir with server"
-		)
-		parser.add_argument("-f", "--folder", nargs=1, type=str, help="folder to sync")
-		parser.add_argument("-v", "--verbose", action="store_true", help="Show files to upload and quit")
-		args = parser.parse_args(sys.argv[2:])
-		if args.verbose:
-			print(args)
-			exit(0)
+	def sync(self, data_sync):
 
 		#todo fix
-		if args.folder is None:
-			parser.print_help()
+		if data_sync is None:
+			print('none')
 			exit(0)
 
 		options = {'webdav_hostname': "http://" + self.ip_address + ":" + self.port}
@@ -171,63 +141,63 @@ class Syncer(object):
 		if not client.check(self.root_dir):
 			client.mkdir(self.root_dir)
 
-		if not os.path.isdir(args.folder[0]):
-			parser.print_usage()
+		if not os.path.isdir(data_sync[0]):
 			print("You should pass a folder")
 			exit(1)
 
-		client.push_force(self.root_dir, args.folder[0])
+		client.push_force(self.root_dir, data_sync[0])
 
-
-	def convert(self):
+	def convert(self, data_convert):
 		print("converting")
-# import webdav3.client as wc
-# options = {
-# 	'webdav_hostname': "http://" + config['phone']['ip_address'] + config['phone']['port']
-# }
-# print("connecting")
-#
-# client = wc.Client(options)
-#
-# client.upload(remote, local)
 
-def make_default_config():
+
+def make_config(config_path,config_type='default'):
 	config_default = configparser.ConfigParser()
-	# config_default['phone'] = {'ip_address': '10.0.0.6', 'port': '8080', 'root_dir': '/sync'}
-	config_default['phone'] = {'ip_address': '127.0.0.1', 'port': '8080', 'root_dir': '/sync'}
 
-	with open(config_path, 'w+') as configFile:
-		config_default.write(configFile)
+	def create(choice):
+
+		if choice == 'prod':
+			config_default['phone'] = {'ip_address': '10.0.0.6', 'port': '8080', 'root_dir': '/sync'}
+			print("prod config was created")
+		if choice == 'test' or choice == 'default':
+			config_default['phone'] = {'ip_address': '127.0.0.1', 'port': '8080', 'root_dir': '/sync'}
+			print("test config was created")
+		with open(config_path, 'w+') as configFile:
+			config_default.write(configFile)
+
+	if config_type == 'prod':
+		create('prod')
+		exit(0)
+	if config_type == 'test':
+		create('test')
+		exit(0)
+	else:
+		create('default')
+
+
+def run(config):
+	s = Syncer(config)
+
 
 def main():
+	settings = {}
+	config_parser = configparser.ConfigParser()
+
+	home_dir = str(Path.home())
+	config_path = Path(home_dir + '/.config/msyncer')
 
 	if Path.exists(config_path):
 		pass
 	else:
-		make_default_config()
-
-	config_parser = configparser.ConfigParser()
+		print('config file not found, creating one...')
+		make_config(config_path)
 
 	config_parser.read(config_path)
 
+	settings["path"] = config_path
+	settings["config"] = config_parser
 
-
-
-	# arg_parser = argparse.ArgumentParser(
-	# 	description="It sync's files between two nodes and bunch of other stuff"
-	# )
-	#
-	# arg_parser.add_argument("-u", "--upload", type=str, nargs="+", help="upload this file to player")
-	# # arg_parser.add_argument("-s")
-	# # arg_parser.add_argument("-c", "--convert", type=str, nargs="+", help="converting stuff")
-	# # arg_parser.add_argument("-s", "--sync", type=str, nargs="+", help="sync stuff")
-	# args = arg_parser.parse_args()
-
-	s = Syncer(config_parser)
-
-	# print(args.upload)
-
-	# upload(config_parser,what,where)
+	run(settings)
 
 #
 # def convert(i):
